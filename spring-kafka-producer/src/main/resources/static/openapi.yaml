@@ -1,0 +1,129 @@
+openapi: 3.0.3
+info:
+  title: Kafka Producer API
+  description: REST API for producing messages to Kafka with Avro serialization
+  version: 1.0.0
+servers:
+  - url: http://localhost:8082
+    description: Local development server
+
+paths:
+  /api/messages:
+    post:
+      summary: Send a message to Kafka
+      description: Publishes a text message to the Kafka topic with Avro serialization
+      operationId: sendMessage
+      tags:
+        - Messages
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TextMessage'
+            examples:
+              simple:
+                summary: Simple message
+                value:
+                  title: "Hello World"
+                  body: "This is a test message"
+                  sender: "user1"
+                  receiver: "user2"
+                  messageId: 123
+                  isImportant: false
+              important:
+                summary: Important message
+                value:
+                  title: "Urgent Alert"
+                  body: "Critical system notification"
+                  sender: "admin"
+                  receiver: "ops-team"
+                  messageId: 999
+                  isImportant: true
+      responses:
+        '202':
+          description: Message accepted and sent to Kafka
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              example:
+                status: "Message sent to Kafka topic"
+                messageId: "123"
+        '400':
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    TextMessage:
+      type: object
+      required:
+        - title
+        - body
+        - sender
+        - receiver
+        - messageId
+        - isImportant
+      properties:
+        title:
+          type: string
+          description: Message title
+          example: "Hello World"
+        body:
+          type: string
+          description: Message content
+          example: "This is a test message"
+        sender:
+          type: string
+          description: Message sender identifier
+          example: "user1"
+        receiver:
+          type: string
+          description: Message receiver identifier
+          example: "user2"
+        messageId:
+          type: integer
+          format: int32
+          description: Unique message identifier (used as Kafka partition key)
+          example: 123
+        isImportant:
+          type: boolean
+          description: Flag indicating if the message is important
+          example: false
+
+    MessageResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          description: Status message
+          example: "Message sent to Kafka topic"
+        messageId:
+          type: string
+          description: The message ID that was sent
+          example: "123"
+
+    ErrorResponse:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: Error timestamp
+        status:
+          type: integer
+          description: HTTP status code
+        error:
+          type: string
+          description: Error type
+        path:
+          type: string
+          description: Request path
+
+tags:
+  - name: Messages
+    description: Message operations

@@ -257,231 +257,58 @@ docker-compose down -v --rmi all
 
 This is a playground environment for learning and experimentation.
 
-# Implementation of Schema Registry
+# Avro Schema Registry - Implemented ✅
 
-I'll explain the changes needed to add Avro schema support for the text_message topic using the Schema Registry that's already running in your docker-compose setup.
+The `spring-kafka-producer` application now uses **Avro serialization with Schema Registry**!
 
-  Why Add a Schema?
+## What Changed
 
-  Currently, you're using JSON serialization which has no schema validation. Adding an Avro schema provides:
-  - Schema validation - Ensures all messages conform to the schema
-  - Schema evolution - Backward/forward compatibility as your schema changes
-  - Better performance - Avro is more compact than JSON
-  - Type safety - Strong typing enforced by the registry
+- **Serialization**: JSON → Avro binary format
+- **Schema Management**: Automatic registration with Schema Registry
+- **Port**: Application moved from 8081 → 8082 (Schema Registry uses 8081)
+- **Type Safety**: Compile-time validation with generated Avro classes
 
-  Changes Needed
+## Benefits
 
-  1. Add Avro Dependencies (build.gradle)
+- ✅ **Schema Validation** - Invalid messages rejected automatically
+- ✅ **Schema Evolution** - Backward/forward compatibility as schema changes
+- ✅ **Better Performance** - Avro is more compact than JSON
+- ✅ **Type Safety** - Strong typing enforced by the registry
+- ✅ **Documentation** - Schema serves as living documentation
 
-  You'll need to add these dependencies:
+## How It Works
 
-  dependencies {
-      // Existing dependencies...
+1. **Automatic Schema Registration**: When you send your first message, the KafkaAvroSerializer automatically registers the schema with Schema Registry
+2. **Schema ID Embedding**: Each message includes a schema ID in its bytes (magic byte + schema ID + data)
+3. **Compatibility Checking**: Schema Registry enforces backward compatibility by default
 
-      // Add these for Avro + Schema Registry
-      implementation 'org.apache.avro:avro:1.11.3'
-      implementation 'io.confluent:kafka-avro-serializer:7.6.0'
+## Quick Start with Avro
 
-      // Add Confluent repository
-  }
+```bash
+# 1. Start infrastructure
+docker-compose up -d
 
-  repositories {
-      mavenCentral()
-      maven {
-          url "https://packages.confluent.io/maven/"
-      }
-  }
+# 2. Run the Spring Boot app (on port 8082)
+cd spring-kafka-producer
+./gradlew bootRun
 
-  2. Create Avro Schema File
+# 3. Send a message
+curl -X POST http://localhost:8082/api/messages \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Test","body":"Hello Avro","sender":"user1","receiver":"user2","messageId":1,"isImportant":true}'
 
-  Create src/main/avro/TextMessage.avsc:
+# 4. Verify schema registration
+curl http://localhost:8081/subjects
+curl http://localhost:8081/subjects/text_message-value/versions/1
+```
 
-  {
-    "type": "record",
-    "name": "TextMessage",
-    "namespace": "com.badrri.playground.avro",
-    "fields": [
-      {
-        "name": "title",
-        "type": "string",
-        "doc": "Message title or subject"
-      },
-      {
-        "name": "body",
-        "type": "string",
-        "doc": "Main message content"
-      },
-      {
-        "name": "sender",
-        "type": "string",
-        "doc": "Sender identifier"
-      },
-      {
-        "name": "receiver",
-        "type": "string",
-        "doc": "Receiver identifier"
-      },
-      {
-        "name": "messageId",
-        "type": "int",
-        "doc": "Unique message identifier"
-      },
-      {
-        "name": "isImportant",
-        "type": "boolean",
-        "default": false,
-        "doc": "Priority flag"
-      }
-    ]
-  }
+## Important: Message Compatibility
 
-  3. Add Avro Gradle Plugin (build.gradle)
+**Old JSON messages** and **new Avro messages** are incompatible!
 
-  Add plugin to generate Java classes from Avro schema:
+For this playground, delete the old topic to start fresh:
+```bash
+docker exec -it kafka kafka-topics --delete --topic text_message --bootstrap-server localhost:9092
+```
 
-  plugins {
-      id 'java'
-      id 'org.springframework.boot' version '4.0.1'
-      id 'io.spring.dependency-management' version '1.1.7'
-      id 'com.github.davidmc24.gradle.plugin.avro' version '1.9.1'  // Add this
-  }
-
-  // Configure Avro plugin
-  avro {
-      createSetters = true
-      fieldVisibility = "PRIVATE"
-      outputCharacterEncoding = "UTF-8"
-      stringType = "String"
-  }
-
-  4. Update KafkaProducerConfig.java
-
-  Change from JSON serializer to Avro serializer:
-
-  @Configuration
-  public class KafkaProducerConfig {
-
-      @Value("${spring.kafka.bootstrap-servers}")
-      private String bootstrapServers;
-
-      @Value("${spring.kafka.properties.schema.registry.url}")
-      private String schemaRegistryUrl;
-
-      @Bean
-      public ProducerFactory<String, com.badrri.playground.avro.TextMessage> producerFactory() {
-          Map<String, Object> configProps = new HashMap<>();
-          configProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-          configProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
-
-          // Change to Avro serializer
-          configProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
-                         io.confluent.kafka.serializers.KafkaAvroSerializer.class);
-
-          // Add Schema Registry URL
-          configProps.put("schema.registry.url", schemaRegistryUrl);
-
-          return new DefaultKafkaProducerFactory<>(configProps);
-      }
-
-      @Bean
-      public KafkaTemplate<String, com.badrri.playground.avro.TextMessage> kafkaTemplate() {
-          return new KafkaTemplate<>(producerFactory());
-      }
-  }
-
-  5. Update application.properties
-
-  Add Schema Registry URL (note: port conflict with your app):
-
-  # Server - Change port since Schema Registry uses 8081
-  server.port=8082
-
-  # Kafka
-  spring.kafka.bootstrap-servers=localhost:9092
-  spring.kafka.producer.key-serializer=org.apache.kafka.common.serialization.StringSerializer
-  spring.kafka.producer.value-serializer=io.confluent.kafka.serializers.KafkaAvroSerializer
-
-  # Schema Registry
-  spring.kafka.properties.schema.registry.url=http://localhost:8081
-
-  ⚠️ Important: Your Spring Boot app currently uses port 8081, but Schema Registry also uses 8081. You'll need to change your app to port 8082 (or change Schema Registry port in docker-compose).
-
-  6. Update MessageProducerService.java
-
-  Change the type to use generated Avro class:
-
-  @Service
-  public class MessageProducerService {
-
-      @Autowired
-      private KafkaTemplate<String, com.badrri.playground.avro.TextMessage> kafkaTemplate;
-
-      private static final String TOPIC = "text_message";
-
-      public void sendMessage(com.badrri.playground.avro.TextMessage message) {
-          // Rest of the code stays the same
-          kafkaTemplate.send(TOPIC, message.getMessageId().toString(), message)
-                  .whenComplete((result, ex) -> {
-                      // ...
-                  });
-      }
-  }
-
-  7. Update MessageController.java
-
-  You have two options:
-
-  Option A: Keep the current Java record for the REST API and convert to Avro:
-
-  @PostMapping
-  @ResponseStatus(HttpStatus.ACCEPTED)
-  public Map<String, String> sendMessage(@RequestBody TextMessage message) {
-      // Convert Java record to Avro
-      com.badrri.playground.avro.TextMessage avroMessage =
-          com.badrri.playground.avro.TextMessage.newBuilder()
-              .setTitle(message.title())
-              .setBody(message.body())
-              .setSender(message.sender())
-              .setReceiver(message.receiver())
-              .setMessageId(message.messageId())
-              .setIsImportant(message.isImportant())
-              .build();
-
-      messageProducerService.sendMessage(avroMessage);
-      // ...
-  }
-
-  Option B: Use the Avro-generated class directly in the controller.
-
-  8. Build Process
-
-  After adding the Avro plugin, run:
-
-  ./gradlew generateAvroJava
-  ./gradlew build
-
-  This generates Java classes from your .avsc schema file in build/generated-main-avro-java/.
-
-  Summary of Changes
-  ┌────────────────────────┬────────────────────────────┬───────────────────────────────────────────┐
-  │       Component        │        Change Type         │                Description                │
-  ├────────────────────────┼────────────────────────────┼───────────────────────────────────────────┤
-  │ build.gradle           │ Add dependencies + plugin  │ Avro, Schema Registry client, Avro plugin │
-  ├────────────────────────┼────────────────────────────┼───────────────────────────────────────────┤
-  │ Schema file            │ Create new                 │ src/main/avro/TextMessage.avsc            │
-  ├────────────────────────┼────────────────────────────┼───────────────────────────────────────────┤
-  │ KafkaProducerConfig    │ Update serializer          │ JSON → KafkaAvroSerializer                │
-  ├────────────────────────┼────────────────────────────┼───────────────────────────────────────────┤
-  │ application.properties │ Add property + change port │ Schema Registry URL + port 8082           │
-  ├────────────────────────┼────────────────────────────┼───────────────────────────────────────────┤
-  │ MessageProducerService │ Update type                │ Use generated Avro class                  │
-  ├────────────────────────┼────────────────────────────┼───────────────────────────────────────────┤
-  │ MessageController      │ Add conversion             │ Java record → Avro message                │
-  └────────────────────────┴────────────────────────────┴───────────────────────────────────────────┘
-  Benefits After Migration
-
-  1. Schema is registered in Schema Registry (viewable at http://localhost:8081/subjects)
-  2. Automatic validation - Invalid messages rejected
-  3. Schema evolution - Can update schema with compatibility rules
-  4. Better tooling - Kafka UI will show schema info
-  5. Type safety - Compile-time validation
+See `spring-kafka-producer/README.md` for detailed documentation.

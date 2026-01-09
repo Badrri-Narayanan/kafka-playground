@@ -1,6 +1,6 @@
 # Spring Kafka Producer
 
-A Spring Boot application that publishes text messages to a Kafka topic with Swagger UI for API documentation.
+A Spring Boot application that publishes text messages to a Kafka topic with **Avro serialization** and Schema Registry integration.
 
 ## Prerequisites
 
@@ -31,19 +31,24 @@ docker-compose up -d
 ./gradlew bootRun
 ```
 
-The application will start on **http://localhost:8081**
+The application will start on **http://localhost:8082**
 
 ## API Documentation
 
-### Swagger UI
+### Scalar API Reference ✅
+
+We use **Scalar** as an alternative to Swagger UI (which isn't compatible with Spring Boot 3.5.9 yet).
 
 Access the interactive API documentation at:
-**http://localhost:8081/swagger-ui.html**
+- **API Docs UI:** http://localhost:8082/api-docs.html
+- **OpenAPI Spec:** http://localhost:8082/openapi.yaml
 
-### OpenAPI Spec
-
-The OpenAPI specification is available at:
-**http://localhost:8081/api-docs**
+Scalar provides:
+- 🎨 Modern, beautiful interface
+- 🚀 Try out API requests directly
+- 📝 Complete request/response examples
+- 🔍 Search functionality
+- 📱 Mobile-friendly design
 
 ## API Endpoints
 
@@ -73,10 +78,22 @@ Publishes a text message to the `text_message` Kafka topic.
 
 **Status Code:** 202 Accepted
 
-## Testing with cURL
+## Testing the API
+
+### Quick Test Script
+
+Run the provided test script to send multiple test messages:
 
 ```bash
-curl -X POST http://localhost:8081/api/messages \
+./test-api.sh
+```
+
+This will send 3 test messages and show verification steps.
+
+### Manual Testing with cURL
+
+```bash
+curl -X POST http://localhost:8082/api/messages \
   -H "Content-Type: application/json" \
   -d '{
     "title": "Test",
@@ -147,11 +164,13 @@ src/main/java/com/badrri/playground/
 
 ## Dependencies
 
-- Spring Boot 4.0.1
+- Spring Boot 3.5.9
 - Spring Kafka
 - Spring Web MVC
-- SpringDoc OpenAPI (Swagger) 2.7.0
+- Apache Avro 1.11.3
+- Confluent Kafka Avro Serializer 7.6.0
 - Java 21
+- Gradle 8.14.3
 
 ## Troubleshooting
 
@@ -168,17 +187,89 @@ docker-compose ps
 ./gradlew bootRun --info
 ```
 
-### Port 8081 already in use
+### Port 8082 already in use
 
-Change the port in `application.properties`:
-```properties
-server.port=8082
+The application runs on port 8082 to avoid conflict with Schema Registry (port 8081).
+Change the port in `application.properties` if needed.
+
+### Swagger UI Not Loading
+
+If Swagger UI doesn't load, check:
+1. Application is running: `curl http://localhost:8082/actuator/health` (if actuator is enabled)
+2. Try the direct URL: http://localhost:8082/swagger-ui/index.html
+3. Check application logs for SpringDoc initialization messages
+
+**Alternative:** Use the `test-api.sh` script or curl commands to test the API.
+
+## Avro Schema Registry Integration
+
+This application now uses **Avro serialization** with Schema Registry for better schema validation and evolution.
+
+### How Schema Registration Works
+
+The schema is **automatically registered** when you send the first message:
+
+1. Spring app creates an Avro TextMessage object
+2. KafkaAvroSerializer extracts the schema from the message
+3. Serializer checks Schema Registry for the schema
+4. If not found, it registers the schema at `text_message-value`
+5. Schema Registry returns a schema ID (e.g., 1)
+6. Serializer embeds schema ID in the message bytes
+7. Message is sent to Kafka
+
+**No manual registration needed!** The serializer handles everything automatically.
+
+### Verify Schema Registration
+
+After sending your first message:
+
+```bash
+# List all registered schemas
+curl http://localhost:8081/subjects
+
+# Get schema versions
+curl http://localhost:8081/subjects/text_message-value/versions
+
+# View the actual schema
+curl http://localhost:8081/subjects/text_message-value/versions/1
 ```
+
+### Message Format Compatibility
+
+**Important:** Avro and JSON messages are incompatible!
+
+- **Old JSON messages** in the topic cannot be read by Avro deserializers
+- **New Avro messages** have a different binary format (magic byte + schema ID + data)
+
+**For this playground environment**, delete the old topic to start fresh:
+
+```bash
+docker exec -it kafka kafka-topics --delete \
+  --topic text_message \
+  --bootstrap-server localhost:9092
+```
+
+The topic will be auto-created when you send the first Avro message.
+
+### Schema Evolution
+
+You can modify the Avro schema over time:
+
+1. Update `src/main/avro/TextMessage.avsc`
+2. Rebuild: `./gradlew generateAvroJava build`
+3. Send a message with the new schema
+4. Schema Registry validates compatibility (backward mode by default)
+5. If compatible, registers as version 2
+
+**Backward compatibility** (default) means:
+- New consumers can read old messages
+- Safe to add optional fields with defaults
+- Cannot remove required fields
 
 ## Next Steps
 
-- Add message validation
-- Implement error handling
-- Add consumer application
-- Integrate Schema Registry for Avro serialization
+- Add consumer application with Avro deserialization
+- Implement error handling and retry logic
 - Add unit and integration tests
+- Explore schema evolution scenarios
+- Add message validation at REST layer
