@@ -1,0 +1,39 @@
+{
+  "type": "record",
+  "name": "TextMessage",
+  "namespace": "com.badrri.playground.avro",
+  "doc": "Schema for text messages sent via Kafka",
+  "fields": [
+    {
+      "name": "title",
+      "type": "string",
+      "doc": "Message title or subject"
+    },
+    {
+      "name": "body",
+      "type": "string",
+      "doc": "Main message content"
+    },
+    {
+      "name": "sender",
+      "type": "string",
+      "doc": "Sender identifier"
+    },
+    {
+      "name": "receiver",
+      "type": "string",
+      "doc": "Receiver identifier"
+    },
+    {
+      "name": "messageId",
+      "type": "int",
+      "doc": "Unique message identifier"
+    },
+    {
+      "name": "isImportant",
+      "type": "boolean",
+      "default": false,
+      "doc": "Priority flag indicating message importance"
+    }
+  ]
+}

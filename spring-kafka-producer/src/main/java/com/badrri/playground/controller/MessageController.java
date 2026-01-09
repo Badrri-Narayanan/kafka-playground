@@ -37,7 +37,18 @@ public class MessageController {
         @ApiResponse(responseCode = "400", description = "Invalid message format")
     })
     public ResponseEntity<Map<String, String>> publishMessage(@RequestBody TextMessage message) {
-        messageProducerService.sendMessage(message);
+        // Convert REST DTO to Avro message
+        com.badrri.playground.avro.TextMessage avroMessage =
+            com.badrri.playground.avro.TextMessage.newBuilder()
+                .setTitle(message.title())
+                .setBody(message.body())
+                .setSender(message.sender())
+                .setReceiver(message.receiver())
+                .setMessageId(message.messageId())
+                .setIsImportant(message.isImportant())
+                .build();
+
+        messageProducerService.sendMessage(avroMessage);
 
         Map<String, String> response = new HashMap<>();
         response.put("status", "Message sent to Kafka topic");
